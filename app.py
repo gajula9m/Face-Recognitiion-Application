@@ -11,11 +11,10 @@ vid = cv2.VideoCapture(0)
 
 
 # Create directory to store faces
-faces_dir = 'data/faces'
+faces_dir = 'faces/'
 
 if not os.path.isdir(faces_dir):
     os.makedirs(faces_dir)
-faces_dir = os.path.dirname(os.path.abspath(faces_dir))
 
 
 
@@ -24,26 +23,54 @@ def get_face(frame):
     face_points = face_detector.detectMultiScale(gray, 1.3, 5)
     return face_points
 
+def add_face():
+    name = input('Enter a name: ')
+    folder = faces_dir + name
+    if not os.path.isdir(folder):
+        os.makedirs(folder)
 
-
-while True:
-    ret, frame = vid.read()
-    face_points = get_face(frame)
+    vid = cv2.VideoCapture(0)
     
-    if type(face_points) != tuple :
-        x, y, w, h = face_points[0]
-        cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 20), 2)
-        # face = cv2.resize(frame[y:y+h, x:x+w], (50, 50))
+    i, j = 0, 0
+    while 1:
+        ret, frame = vid.read()
+        faces = get_face(frame)
+
+        for face in faces:
+            # print(face)
+            x, y, w, h = face
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 20), 2)
+            cv2.putText(frame, f'Images Captured: ?/50', (30, 30), 
+                            cv2.FONT_HERSHEY_SCRIPT_SIMPLEX, 1, (255, 0, 20),
+                            2, cv2.LINE_AA)
+        
+        cv2.imshow('Frame', frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    vid.release()
+    cv2.destroyAllWindows()
+
+add_face()
 
 
+# while True:
+#     ret, frame = vid.read()
+#     face_points = get_face(frame)
 
-    cv2.imshow('frame', frame)
+#     if type(face_points) != tuple :
+#         x, y, w, h = face_points[0]
+#         cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 20), 2)
+#         # face = cv2.resize(frame[y:y+h, x:x+w], (50, 50))
 
-    if cv2.waitKey(1) & 0xFF == ord('q'):
-        break
+#     cv2.imshow('frame', frame)
 
-vid.release()
-cv2.destroyAllWindows()
+#     if cv2.waitKey(1) & 0xFF == ord('q'):
+#         break
+
+# vid.release()
+# cv2.destroyAllWindows()
 
 
 
