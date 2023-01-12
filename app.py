@@ -2,6 +2,8 @@ import cv2
 import os
 import numpy as np
 import pandas as pd
+from sklearn.neighbors import KNeighborsClassifier
+import joblib
 
 # Intialize the face detector 
 cv2_base_dir = os.path.dirname(os.path.abspath(cv2.__file__))
@@ -62,7 +64,7 @@ def add_face():
 
             cv2.imshow('Frame', frame)
 
-            if num_img == 10:
+            if num_img == 7:
                 break
             
 
@@ -72,25 +74,61 @@ def add_face():
     vid.release()
     cv2.destroyAllWindows()
 
-add_face()
+def train_model():
+    faces = []
+    labels = []
+    userlist = os.listdir('faces')
+    for user in userlist:
+        for img_file in os.listdir(f'faces/{user}/'):
+            img = cv2.imread(f'faces/{user}/{img_file}')
+            resized_img = cv2.resize(img, (50, 50))
+            faces.append(resized_img.ravel())
+            labels.append(user)
+
+    faces = np.array(faces)
+    knn = KNeighborsClassifier(n_neighbors=5)
+    knn.fit(faces, labels)
+
+    model_dir = 'models/'
+    if not os.path.isdir(model_dir):
+        os.makedirs(model_dir)
+
+    joblib.dump(knn, 'models/model.pkl')
+
+def identify_face():
+    model = joblib.load('models/model.pkl')
+    
+    cap = cv2.VideoCapture(0)
+    ret = True
+    while ret:
+        ret, frame = cap.read()
+        faces = get_face(frame)
+
+        if type(faces) == tuple:
+            continue
+        
+        for face in faces:
+            x, y, w, h = face
+
+            cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 20), 2)
+            resized_face = cv2.resize(frame[y:y+h, x:x+w], (50,50))
+            identified_person = model.predict(resized_face.reshape(1,-1))[0]
+
+            print(identified_person)
+
+        cv2.imshow('Frame', frame)
+
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+    
+    cap.release()
+    cv2.releaseAllWindows()
 
 
-# while True:
-#     ret, frame = vid.read()
-#     face_points = get_face(frame)
-
-#     if type(face_points) != tuple :
-#         x, y, w, h = face_points[0]
-#         cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 20), 2)
-#         # face = cv2.resize(frame[y:y+h, x:x+w], (50, 50))
-
-#     cv2.imshow('frame', frame)
-
-#     if cv2.waitKey(1) & 0xFF == ord('q'):
-#         break
-
-# vid.release()
-# cv2.destroyAllWindows()
 
 
-
+if __name__ == '__main__':
+    # add_face()
+    # train_model()
+    # print('model trained')
+    identify_face()
