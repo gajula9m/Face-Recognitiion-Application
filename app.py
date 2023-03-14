@@ -1,21 +1,42 @@
 import cv2
 import os
 import numpy as np
+from datetime import date
 import pandas as pd
 from sklearn.neighbors import KNeighborsClassifier
+from flask import Flask
+from google.cloud import storage
 import joblib
+import shutil
 
 # Intialize the face detector 
 cv2_base_dir = os.path.dirname(os.path.abspath(cv2.__file__))
 haar_model = os.path.join(cv2_base_dir, 'data/haarcascade_frontalface_default.xml')
+
+# print(haar_model)
 face_detector = cv2.CascadeClassifier(haar_model)
 # vid = cv2.VideoCapture(0)
 
+faces_dir = 'faces/'
+attendance_dir = 'attendance/'
+
+
+# Get Date for Attendance
+def get_date():
+    return date.today.strftime("%m_%d_%y")
 
 # Create directory to store faces
-faces_dir = 'faces/'
-if not os.path.isdir(faces_dir):
-    os.makedirs(faces_dir)
+def init_dir():
+    if not os.path.isdir(faces_dir):
+        os.makedirs(faces_dir)
+    if not os.path.isdir(attendance_dir):
+        os.makedirs(attendance_dir)
+
+    current_day_csv = f'Attendance_({get_date()}.csv'
+    if current_day_csv not in os.listdir('Attendance'):
+        with open(f'Attendance/{current_day_csv}', 'w') as file:
+            file.write('Name, ID, Time')
+
 
 # Identify and get face from the given frame
 def get_face(frame):
@@ -25,6 +46,7 @@ def get_face(frame):
 
 # Add the face to be saved for future model training
 def add_face():
+
     # Get name from user  and create a directory for them
     name = input('Enter a name: ')
     name_folder = faces_dir + name
@@ -38,6 +60,8 @@ def add_face():
     while 1:
         ret, frame = vid.read()
         face = get_face(frame)
+
+        print(len(face))
 
         # make sure there is only one face in the image screen 
         if len(face) > 1:
@@ -59,6 +83,7 @@ def add_face():
             if num_frame%10 == 0:
                 img_name = name + '_' + str(num_img) + '.jpg'
                 cv2.imwrite(name_folder + '/' + img_name, frame[y:y+h, x:x+w])
+                upload_blob("faces-bucket-3132022", name_folder + '/' + img_name, name + '/' + img_name )
                 num_img+=1
             num_frame+=1
 
@@ -71,8 +96,12 @@ def add_face():
         if cv2.waitKey(1) & 0xFF == ord('q'):
             break
 
+    shutil.rmtree(name_folder)
     vid.release()
     cv2.destroyAllWindows()
+
+    # train_model()
+    # print("Trained model")
 
 def train_model():
     faces = []
@@ -97,8 +126,7 @@ def train_model():
 
 def identify_face():
     model = joblib.load('models/model.pkl')
-    
-    cap = cv2.VideoCapture(0)
+    cap = cv2.VideoCapture(0, )
     ret = True
     while ret:
         ret, frame = cap.read()
@@ -125,10 +153,35 @@ def identify_face():
     cv2.releaseAllWindows()
 
 
+def upload_blob(bucket_name, source_file_name, destination_blob_name):
 
+    storage_client = storage.Client()
+    bucket = storage_client.bucket(bucket_name)
+    blob = bucket.blob(destination_blob_name)
+
+    generation_match_precondition = 0
+
+    blob.upload_from_filename(source_file_name, if_generation_match = generation_match_precondition)
+
+    print(
+        f"File {source_file_name} uploaded to {destination_blob_name}"
+    )
+
+
+# 1. Add faces
+# 2. Train model
+# 3. Identify faces
+# 4. If new faces are added, re train model
+
+
+app = Flask(__name__)
+
+@app.route('/')
+# ‘/’ URL is bound with hello_world() function.
+def hello_world():
+    return 'Hello World'
 
 if __name__ == '__main__':
-    # add_face()
-    # train_model()
-    # print('model trained')
-    identify_face()
+    add_face()
+    # identify_face()
+    # app.run()
