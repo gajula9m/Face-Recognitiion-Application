@@ -4,10 +4,14 @@ import numpy as np
 from datetime import date
 import pandas as pd
 from sklearn.neighbors import KNeighborsClassifier
-from flask import Flask
+from flask import Flask, request, render_template, jsonify
+import base64
+from PIL import Image
+import io
 from google.cloud import storage
 import joblib
 import shutil
+import glob
 
 # Intialize the face detector 
 cv2_base_dir = os.path.dirname(os.path.abspath(cv2.__file__))
@@ -18,24 +22,11 @@ face_detector = cv2.CascadeClassifier(haar_model)
 # vid = cv2.VideoCapture(0)
 
 faces_dir = 'faces/'
-attendance_dir = 'attendance/'
-
-
-# Get Date for Attendance
-def get_date():
-    return date.today.strftime("%m_%d_%y")
 
 # Create directory to store faces
 def init_dir():
     if not os.path.isdir(faces_dir):
         os.makedirs(faces_dir)
-    if not os.path.isdir(attendance_dir):
-        os.makedirs(attendance_dir)
-
-    current_day_csv = f'Attendance_({get_date()}.csv'
-    if current_day_csv not in os.listdir('Attendance'):
-        with open(f'Attendance/{current_day_csv}', 'w') as file:
-            file.write('Name, ID, Time')
 
 
 # Identify and get face from the given frame
@@ -44,66 +35,25 @@ def get_face(frame):
     face_points = face_detector.detectMultiScale(gray, 1.3, 5)
     return face_points
 
-# Add the face to be saved for future model training
-def add_face():
-
-    # Get name from user  and create a directory for them
-    name = input('Enter a name: ')
+def add_student(name, img):
     name_folder = faces_dir + name
     if not os.path.isdir(name_folder):
         os.makedirs(name_folder)
-
-    # Start capturing their image
-    vid = cv2.VideoCapture(0)
     
-    num_img, num_frame = 0, 0
-    while 1:
-        ret, frame = vid.read()
-        face = get_face(frame)
+    
+    face = get_face(np.asarray(img))
 
-        print(len(face))
-
-        # make sure there is only one face in the image screen 
-        if len(face) > 1:
-            # handle error properly
-            print('Too many faces. Please add one face for the user.')
-            break
-        else:
-            # if no face found, continue looking for face
-            if type(face) == tuple:
-                continue
-            
-            # Capture and save 10 images of the user's face
-            x, y, w, h = face[0]
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 20), 2)
-            cv2.putText(frame, f'Images Captured: {num_img}/10', (30, 30), 
-                            cv2.FONT_HERSHEY_PLAIN, 1, (255, 0, 20),
-                            2, cv2.LINE_AA)
-
-            if num_frame%10 == 0:
-                img_name = name + '_' + str(num_img) + '.jpg'
-                cv2.imwrite(name_folder + '/' + img_name, frame[y:y+h, x:x+w])
-                upload_blob("faces-bucket-3132022", name_folder + '/' + img_name, name + '/' + img_name )
-                num_img+=1
-            num_frame+=1
-
-            cv2.imshow('Frame', frame)
-
-            if num_img == 7:
-                break
-            
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
-
-    shutil.rmtree(name_folder)
-    vid.release()
-    cv2.destroyAllWindows()
-
-    # train_model()
-    # print("Trained model")
+    if len(face) == 1:
+        num_img =  count_blobs_with_prefix("faces-bucket-3132022", name)
+        img_path = name_folder + '/' + name + '_' + str(num_img) + '.png'
+       
+        x, y, w, h = face[0]
+        cv2.imwrite(img_path, cv2.cvtColor(np.asarray(img)[y:y+h, x:x+w], cv2.COLOR_RGB2BGR))
+        img_name = name + '_' + str(num_img)
+        upload_blob("faces-bucket-3132022", img_path, name + '/' + img_name + '.png')
 
 def train_model():
+    print("Training model")
     faces = []
     labels = []
     userlist = os.listdir('faces')
@@ -115,7 +65,7 @@ def train_model():
             labels.append(user)
 
     faces = np.array(faces)
-    knn = KNeighborsClassifier(n_neighbors=5)
+    knn = KNeighborsClassifier(n_neighbors=1)
     knn.fit(faces, labels)
 
     model_dir = 'models/'
@@ -124,34 +74,17 @@ def train_model():
 
     joblib.dump(knn, 'models/model.pkl')
 
-def identify_face():
+def identify_face(img):
     model = joblib.load('models/model.pkl')
-    cap = cv2.VideoCapture(0, )
-    ret = True
-    while ret:
-        ret, frame = cap.read()
-        faces = get_face(frame)
-
-        if type(faces) == tuple:
-            continue
-        
-        for face in faces:
-            x, y, w, h = face
-
-            cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 0, 20), 2)
-            resized_face = cv2.resize(frame[y:y+h, x:x+w], (50,50))
-            identified_person = model.predict(resized_face.reshape(1,-1))[0]
-
-            print(identified_person)
-
-        cv2.imshow('Frame', frame)
-
-        if cv2.waitKey(1) & 0xFF == ord('q'):
-            break
+    faces = get_face(np.asarray(img))
     
-    cap.release()
-    cv2.releaseAllWindows()
+    if len(faces) == 1:
+        x,y,w,h = faces[0]
+        resized_face = cv2.resize(cv2.cvtColor(np.asarray(img)[y:y+h, x:x+w], cv2.COLOR_RGB2BGR), (50,50))
+        identified_person = model.predict(resized_face.reshape(1,-1))[0]
 
+        name = identified_person
+        return name
 
 def upload_blob(bucket_name, source_file_name, destination_blob_name):
 
@@ -167,6 +100,12 @@ def upload_blob(bucket_name, source_file_name, destination_blob_name):
         f"File {source_file_name} uploaded to {destination_blob_name}"
     )
 
+def count_blobs_with_prefix(bucket_name, prefix, delimiter=None):
+    storage_client = storage.Client()
+
+    blobs = storage_client.list_blobs(bucket_name, prefix=prefix, delimiter=delimiter)
+
+    return sum(1 for _ in blobs)
 
 # 1. Add faces
 # 2. Train model
@@ -178,10 +117,48 @@ app = Flask(__name__)
 
 @app.route('/')
 # ‘/’ URL is bound with hello_world() function.
-def hello_world():
-    return 'Hello World'
+def index():
+    return render_template('index.html')
+
+@app.route('/add_student', methods=['POST'])
+def add_student_route():
+    # get the data URL from the JSON payload
+    name = request.json['name']
+    data_url = request.json['dataUrl']
+    
+    # extract the base64-encoded image data from the data URL
+    encoded_image_data = data_url.split(',')[1]
+    
+    # decode the base64-encoded image data into bytes
+    decoded_image_data = base64.b64decode(encoded_image_data)
+    
+    # create a PIL Image object from the decoded image data
+    image = Image.open(io.BytesIO(decoded_image_data))
+    
+    # save the image to disk
+    add_student(name, image)
+    
+    # return a success response
+    return 'Frames processed successfully'
+
+@app.route('/identify_face', methods=['POST'])
+def identify_face_route():
+    
+    data_url = request.json['dataUrl']
+    encoded_image_data = data_url.split(',')[1]
+    decoded_image_data = base64.b64decode(encoded_image_data)
+    image = Image.open(io.BytesIO(decoded_image_data))
+
+    name = identify_face(image)
+
+    return jsonify({'name': name})
+
+@app.route('/train_model', methods=['POST'])
+def train_model_route():
+    print('receive train model')
+    train_model()
+    return jsonify({'status': 'Model trained successfully'})
 
 if __name__ == '__main__':
-    add_face()
-    # identify_face()
-    # app.run()
+    from waitress import serve
+    serve(app, host="0.0.0.0", port=8080)
