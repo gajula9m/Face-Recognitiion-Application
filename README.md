@@ -1,2 +1,5 @@
 # Face-Recognitiion-Application
-Face Recognition Attendance App
+Face Recognition App
+
+
+Current application located at https://facerecognitionapp-380605.uc.r.appspot.com

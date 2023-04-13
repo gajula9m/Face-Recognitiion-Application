@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Facial Recognition App</title>
+  </head>
+  <body>
+    <h1>Webcam</h1>
+    <div>
+      <video id="video" autoplay></video>
+    </div>
+    <div>
+      <button id="startBtn">Start Webcam</button>
+      <button id="stopBtn" disabled>Stop Webcam</button>
+      <button id="addStudent" disabled>Add Student</button>
+      <button id="trainModel" disabled>Train Model</button>
+      <button id="idStudent" disabled>Identify Student</button>
+      <div id="result"></div>
+    </div>
+    <script>
+      // video element
+      const video = document.getElementById('video');
+
+      // start, stop, and send button elements
+      const startBtn = document.getElementById('startBtn');
+      const stopBtn = document.getElementById('stopBtn');
+      const addStudent = document.getElementById('addStudent');
+      const trainModel = document.getElementById('trainModel')
+      const idStudent = document.getElementById('idStudent');
+      const resultDiv = document.getElementById('result');
+
+      // constraints for accessing the webcam
+      const constraints = {
+        audio: false,
+        video: true
+      };
+
+      // function to handle successful access to the webcam
+      function handleSuccess(stream) {
+        // set the video source to the stream
+        video.srcObject = stream;
+        
+        // enable the stop and send buttons
+        stopBtn.disabled = false;
+        addStudent.disabled = false;
+        trainModel.disabled = false;
+        idStudent.disabled = false;
+        
+        // event listener for the stop button
+        stopBtn.addEventListener('click', function() {
+          stream.getTracks().forEach(track => track.stop());
+          video.srcObject = null;
+
+          // disable the stop and send buttons
+          stopBtn.disabled = true;
+          addStudent.disabled = true;
+          idStudent.disabled = true;
+        });
+        
+        // event listener to the send button
+        addStudent.addEventListener('click', function() {
+          var name = prompt('Enter a name:')
+          if (name != null && name != '') {
+             // get the canvas element
+            const canvas = document.createElement('canvas');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const dataUrl = canvas.toDataURL();
+            
+            // send the data URL to the Flask backend
+            const xhr = new XMLHttpRequest();
+            xhr.open('POST', '/add_student');
+            xhr.setRequestHeader('Content-Type', 'application/json');
+            xhr.onload = function() {
+              if (xhr.status === 200) {
+                console.log('Frames sent successfully');
+              } else {
+                console.error('Error sending frames:', xhr.statusText);
+              }
+            };
+            xhr.onerror = function() {
+              console.error('Error sending frames:', xhr.statusText);
+            };
+            xhr.send(JSON.stringify({ 'name': name, dataUrl: dataUrl }));
+          }
+        });
+
+        trainModel.addEventListener('click', function() {
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', '/train_model');
+          xhr.setRequestHeader('Conent-Type', 'applicaiton/json')
+          xhr.onload = function () {
+            if (xhr.status = 200) {
+              console.log('Model has been trained')
+            } else {
+              console.error('Error Training model:', xhr.statusText);
+            }
+          };
+          xhr.onerror = function () {
+            console.error('Error Training Model:', xhr.statusText)
+          };
+          xhr.send();
+        });
+
+        idStudent.addEventListener('click', function() {
+          // get the canvas element
+          const canvas = document.createElement('canvas');
+          canvas.width = video.videoWidth;
+          canvas.height = video.videoHeight;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          const dataUrl = canvas.toDataURL();
+          
+          // send the data URL to the Flask backend
+          fetch('/identify_face', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ dataUrl:dataUrl })
+          })
+          .then(response => response.json())
+          .then(data => {
+            resultDiv.textContent = "Identified Person as: " + data.name;
+          });
+        });
+
+    
+      }
+
+      // function to handle errors accessing the webcam
+      function handleError(error) {
+        console.error('Error accessing webcam:', error);
+      }
+
+      // add an event listener to the start button
+      startBtn.addEventListener('click', function() {
+        // access the webcam
+        navigator.mediaDevices.getUserMedia(constraints)
+          .then(handleSuccess)
+          .catch(handleError);
+      });
+    </script>
+  </body>
+</html>
